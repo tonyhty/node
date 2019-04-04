@@ -92,8 +92,17 @@
     # Enable embedded builtins.
     'v8_enable_embedded_builtins%': 1,
 
+    # Enable the registration of unwinding info for Windows/x64.
+    'v8_win64_unwinding_info%': 0,
+
     # Enable code comments for builtins in the snapshot (impacts performance).
     'v8_enable_snapshot_code_comments%': 0,
+
+    # Enable native counters from the snapshot (impacts performance, sets
+    # -dV8_SNAPSHOT_NATIVE_CODE_COUNTERS).
+    # This option will generate extra code in the snapshot to increment counters,
+    # as per the --native-code-counters flag.
+    'v8_enable_snapshot_native_code_counters%': 0,
 
     # Enable code-generation-time checking of types in the CodeStubAssembler.
     'v8_enable_verify_csa%': 0,
@@ -134,6 +143,10 @@
 
     # Use Siphash as added protection against hash flooding attacks.
     'v8_use_siphash%': 0,
+
+    # Use Perfetto (https://perfetto.dev) as the default TracingController. Not
+    # currently implemented.
+    'v8_use_perfetto%': 0,
 
     # Controls the threshold for on-heap/off-heap Typed Arrays.
     'v8_typed_array_max_size_in_heap%': 64,
@@ -247,6 +260,11 @@
       # }],
       ['v8_use_snapshot==1', {
         'defines': ['V8_USE_SNAPSHOT',],
+        'conditions': [
+          ['v8_enable_snapshot_native_code_counters==1', {
+            'defines': ['V8_SNAPSHOT_NATIVE_CODE_COUNTERS',],
+          }],
+        ],
       }],
       ['v8_use_external_startup_data==1', {
         'defines': ['V8_USE_EXTERNAL_STARTUP_DATA',],
@@ -271,6 +289,12 @@
       }],
       ['v8_untrusted_code_mitigations==0', {
         'defines': ['DISABLE_UNTRUSTED_CODE_MITIGATIONS',],
+      }],
+      ['v8_use_perfetto==1', {
+        'defines': ['V8_USE_PERFETTO',],
+      }],
+      ['v8_win64_unwinding_info==1', {
+        'defines': ['V8_WIN64_UNWINDING_INFO',],
       }],
     ],  # conditions
     'defines': [
