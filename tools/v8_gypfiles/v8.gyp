@@ -119,6 +119,7 @@
     'torque_generated_pure_headers': [
       '<(torque_output_root)/torque-generated/builtin-definitions-from-dsl.h',
       '<(torque_output_root)/torque-generated/class-definitions-from-dsl.h',
+      '<(torque_output_root)/torque-generated/objects-printer-from-dsl.h',
     ],
   },
   'includes': ['toolchain.gypi', 'features.gypi', 'v8_external_snapshot.gypi'],
