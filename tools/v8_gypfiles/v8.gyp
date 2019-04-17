@@ -1498,8 +1498,6 @@
         '<(V8_ROOT)/src/profiler/tick-sample.h',
         '<(V8_ROOT)/src/profiler/tracing-cpu-profiler.cc',
         '<(V8_ROOT)/src/profiler/tracing-cpu-profiler.h',
-        '<(V8_ROOT)/src/profiler/unbound-queue-inl.h',
-        '<(V8_ROOT)/src/profiler/unbound-queue.h',
         '<(V8_ROOT)/src/property-descriptor.cc',
         '<(V8_ROOT)/src/property-descriptor.h',
         '<(V8_ROOT)/src/property-details.h',
@@ -1668,6 +1666,7 @@
         '<(V8_ROOT)/src/turbo-assembler.h',
         '<(V8_ROOT)/src/type-hints.cc',
         '<(V8_ROOT)/src/type-hints.h',
+        '<(V8_ROOT)/src/type-traits.h',
         '<(V8_ROOT)/src/unicode-cache.h',
         '<(V8_ROOT)/src/unicode-decoder.cc',
         '<(V8_ROOT)/src/unicode-decoder.h',
@@ -2526,6 +2525,8 @@
         '_HAS_EXCEPTIONS=0',
         'BUILDING_V8_SHARED=1',
       ],
+      'cflags_cc!': ['-fno-exceptions'],
+      'cflags_cc': ['-fexceptions'],
       'msvs_settings': {
         'VCCLCompilerTool': {
           'RuntimeTypeInfo': 'true',
