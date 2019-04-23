@@ -41,6 +41,8 @@
       "<(V8_ROOT)/src/builtins/extras-utils.tq",
       "<(V8_ROOT)/src/builtins/iterator.tq",
       "<(V8_ROOT)/src/builtins/object-fromentries.tq",
+      "<(V8_ROOT)/src/builtins/proxy.tq",
+      "<(V8_ROOT)/src/builtins/proxy-constructor.tq",
       "<(V8_ROOT)/src/builtins/proxy-revocable.tq",
       "<(V8_ROOT)/src/builtins/proxy-revoke.tq",
       "<(V8_ROOT)/src/builtins/regexp.tq",
