@@ -19,11 +19,19 @@ namespace torque {
 
 DEFINE_CONTEXTUAL_VARIABLE(Logger)
 DEFINE_CONTEXTUAL_VARIABLE(TorqueFileList)
+DEFINE_CONTEXTUAL_VARIABLE(DiagnosticsFiles)
 
 namespace ls {
 
 static const char kContentLength[] = "Content-Length: ";
 static const size_t kContentLengthSize = sizeof(kContentLength) - 1;
+
+#ifdef V8_OS_WIN
+// On Windows, in text mode, \n is translated to \r\n.
+constexpr const char* kProtocolLineEnding = "\n\n";
+#else
+constexpr const char* kProtocolLineEnding = "\r\n\r\n";
+#endif
 
 JsonValue ReadMessage() {
   std::string line;
@@ -42,7 +50,7 @@ JsonValue ReadMessage() {
 
   Logger::Log("[incoming] ", content, "\n\n");
 
-  return ParseJson(content);
+  return ParseJson(content).value;
 }
 
 void WriteMessage(JsonValue& message) {
@@ -50,26 +58,85 @@ void WriteMessage(JsonValue& message) {
 
   Logger::Log("[outgoing] ", content, "\n\n");
 
-  std::cout << kContentLength << content.size() << "\r\n\r\n";
+  std::cout << kContentLength << content.size() << kProtocolLineEnding;
   std::cout << content << std::flush;
 }
 
 namespace {
 
-void RecompileTorque() {
-  Logger::Log("[info] Start compilation run ...\n");
+void ResetCompilationErrorDiagnostics(MessageWriter writer) {
+  for (const SourceId& source : DiagnosticsFiles::Get()) {
+    PublishDiagnosticsNotification notification;
+    notification.set_method("textDocument/publishDiagnostics");
 
-  LanguageServerData::Get() = LanguageServerData();
-  SourceFileMap::Get() = SourceFileMap();
+    std::string error_file = SourceFileMap::GetSource(source);
+    notification.params().set_uri(error_file);
+    // Trigger empty array creation.
+    USE(notification.params().diagnostics_size());
+
+    writer(notification.GetJsonValue());
+  }
+}
+
+void SendCompilationErrorDiagnostics(const TorqueError& error,
+                                     MessageWriter writer) {
+  PublishDiagnosticsNotification notification;
+  notification.set_method("textDocument/publishDiagnostics");
+
+  std::string error_file =
+      error.position ? SourceFileMap::GetSource(error.position->source)
+                     : "<unknown>";
+  notification.params().set_uri(error_file);
+
+  Diagnostic diagnostic = notification.params().add_diagnostics();
+  diagnostic.set_severity(Diagnostic::kError);
+  diagnostic.set_message(error.message);
+  diagnostic.set_source("Torque Compiler");
+
+  if (error.position) {
+    Range range = diagnostic.range();
+    range.start().set_line(error.position->start.line);
+    range.start().set_character(error.position->start.column);
+    range.end().set_line(error.position->end.line);
+    range.end().set_character(error.position->end.column);
+  }
+  writer(notification.GetJsonValue());
+
+  if (error.position) DiagnosticsFiles::Get().push_back(error.position->source);
+}
+
+}  // namespace
+
+void CompilationFinished(TorqueCompilerResult result, MessageWriter writer) {
+  LanguageServerData::Get() = result.language_server_data;
+  SourceFileMap::Get() = result.source_file_map;
+
+  if (result.error) {
+    SendCompilationErrorDiagnostics(*result.error, writer);
+  }
+}
+
+namespace {
+
+void RecompileTorque(MessageWriter writer) {
+  Logger::Log("[info] Start compilation run ...\n");
 
   TorqueCompilerOptions options;
   options.output_directory = "";
   options.verbose = false;
   options.collect_language_server_data = true;
   options.abort_on_lint_errors = false;
-  CompileTorque(TorqueFileList::Get(), options);
+
+  TorqueCompilerResult result = CompileTorque(TorqueFileList::Get(), options);
 
   Logger::Log("[info] Finished compilation run ...\n");
+
+  CompilationFinished(result, writer);
+}
+
+void RecompileTorqueWithDiagnostics(MessageWriter writer) {
+  ResetCompilationErrorDiagnostics(writer);
+  RecompileTorque(writer);
 }
 
 void HandleInitializeRequest(InitializeRequest request, MessageWriter writer) {
@@ -107,7 +174,8 @@ void HandleInitializedNotification(MessageWriter writer) {
   writer(request.GetJsonValue());
 }
 
-void HandleTorqueFileListNotification(TorqueFileListNotification notification) {
+void HandleTorqueFileListNotification(TorqueFileListNotification notification,
+                                      MessageWriter writer) {
   CHECK_EQ(notification.params().object()["files"].tag, JsonValue::ARRAY);
 
   std::vector<std::string>& files = TorqueFileList::Get();
@@ -119,26 +187,25 @@ void HandleTorqueFileListNotification(TorqueFileListNotification notification) {
     // We only consider file URIs (there shouldn't be anything else).
     // Internally we store the URI instead of the path, eliminating the need
     // to encode it again.
-    if (auto maybe_path = FileUriDecode(file_json.ToString())) {
-      files.push_back(file_json.ToString());
-      Logger::Log("    ", *maybe_path, "\n");
-    }
+    files.push_back(file_json.ToString());
+    Logger::Log("    ", file_json.ToString(), "\n");
   }
 
   // The Torque compiler expects to see some files first,
   // we need to order them in the correct way.
-  std::sort(files.begin(), files.end(),
-            [](const std::string& a, const std::string& b) {
-              if (a.find("base.tq") != std::string::npos) return true;
-              if (b.find("base.tq") != std::string::npos) return false;
+  // TODO(szuend): Remove this, once the compiler doesn't require the input
+  //               files to be in a specific order.
+  std::vector<std::string> sort_to_front = {"base.tq", "frames.tq",
+                                            "arguments.tq", "array.tq"};
+  std::sort(files.begin(), files.end(), [&](std::string a, std::string b) {
+    for (const std::string& fixed_file : sort_to_front) {
+      if (a.find(fixed_file) != std::string::npos) return true;
+      if (b.find(fixed_file) != std::string::npos) return false;
+    }
+    return a < b;
+  });
 
-              if (a.find("array.tq") != std::string::npos) return true;
-              if (b.find("array.tq") != std::string::npos) return false;
-
-              return false;
-            });
-
-  RecompileTorque();
+  RecompileTorqueWithDiagnostics(writer);
 }
 
 void HandleGotoDefinitionRequest(GotoDefinitionRequest request,
@@ -179,10 +246,10 @@ void HandleGotoDefinitionRequest(GotoDefinitionRequest request,
 }
 
 void HandleChangeWatchedFilesNotification(
-    DidChangeWatchedFilesNotification notification) {
+    DidChangeWatchedFilesNotification notification, MessageWriter writer) {
   // TODO(szuend): Implement updates to the TorqueFile list when create/delete
   //               notifications are received. Currently we simply re-compile.
-  RecompileTorque();
+  RecompileTorqueWithDiagnostics(writer);
 }
 
 }  // namespace
@@ -206,13 +273,13 @@ void HandleMessage(JsonValue& raw_message, MessageWriter writer) {
     HandleInitializedNotification(writer);
   } else if (method == "torque/fileList") {
     HandleTorqueFileListNotification(
-        TorqueFileListNotification(request.GetJsonValue()));
+        TorqueFileListNotification(request.GetJsonValue()), writer);
   } else if (method == "textDocument/definition") {
     HandleGotoDefinitionRequest(GotoDefinitionRequest(request.GetJsonValue()),
                                 writer);
   } else if (method == "workspace/didChangeWatchedFiles") {
     HandleChangeWatchedFilesNotification(
-        DidChangeWatchedFilesNotification(request.GetJsonValue()));
+        DidChangeWatchedFilesNotification(request.GetJsonValue()), writer);
   } else {
     Logger::Log("[error] Message of type ", method, " is not handled!\n\n");
   }
